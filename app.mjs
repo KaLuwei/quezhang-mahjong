@@ -1,15 +1,38 @@
-import {blocks,groups,score,settle,defaults,valueOf,modes,analyze,counts,tileNames} from './engine.mjs';
-import {icon,esc,face,motif} from './visuals.mjs';
-import {allRecords,mergeRecords,removeRecord,isTemporary,download,unpack,preparePhoto} from './store.mjs';
+import {diceDefaults,validOpening,validDice,blankOpening,shuffledSeats,rollDice,roundResult,playerAt,winds} from './opening.mjs';
+import {openingText,effectsView,openingView,diceRuleFields,diagram,drawView,drawOrder} from './opening-ui.mjs';
+import {blocks,groups,defaults,valueOf,modes,analyze,counts,tileNames} from './engine.mjs';
+import {icon,esc,face,motif} from './visuals.mjs?v=opening1';
+import {allRecords,mergeRecords,removeRecord,isTemporary,download,unpack,preparePhoto} from './store.mjs?v=opening1';
 
 const $=s=>document.querySelector(s),main=$('#main'),dlg=$('#dialog'),modal=$('#modal');
-const navigation=[['table','牌桌總覽','dashboard'],['history','牌局紀錄','book'],['hand','聽牌助手','tiles']];
+const navigation=[['table','牌桌總覽','dashboard'],['opening','開局助手','dice'],['history','牌局紀錄','book'],['hand','聽牌助手','tiles']];
 const cash=n=>new Intl.NumberFormat('zh-TW',{maximumFractionDigits:2}).format(n);
 const signed=n=>(n>0?'+':n<0?'−':'')+cash(Math.abs(n));
 const nowParts=()=>Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date()).map(x=>[x.type,x.value]));
 const today=()=>{const d=nowParts();return `${d.year}-${d.month}-${d.day}`};
-function prefLoad(){try{return {...defaults,...JSON.parse(localStorage.getItem('quezhang-settings')||'{}')}}catch{return {...defaults}}}
+function prefLoad(){try{return {...defaults,...diceDefaults,...JSON.parse(localStorage.getItem('quezhang-settings')||'{}')}}catch{return {...defaults,...diceDefaults}}}
 let pref=prefLoad(),records=[],page='',mode='win',picks={},group=0,role='none',streak=0,filter='all',historyDate='',modalType='',attachment='',busy=false,storageBroken=false,backupName='',detailId='',photoLoading=false,photoToken=0;
+let opening=blankOpening();
+try {
+ const saved=JSON.parse(sessionStorage.getItem('quezhang-opening'));
+ if(validOpening(saved,true))opening=saved;
+} catch {}
+function keepOpening(){
+ try {sessionStorage.setItem('quezhang-opening',JSON.stringify(opening))} catch {}
+}
+function resetOpeningDice(){opening.dice=[0,0,0];keepOpening()}
+function paintOpening(){
+ main.innerHTML=openingView(opening,pref);
+}
+function rollDealer(){
+ opening.dealerDice=rollDice();
+ opening.dealer=(opening.dealerDice.reduce((a,b)=>a+b,0)-1)%4;
+ resetOpeningDice();paintOpening();
+}
+function showDiceRules(){
+ showRules();
+ $('#dice-rule-set').scrollIntoView({block:'start'});
+}
 let hand=[],melds=[],seen=[],entry='hand',suit=0;
 let channel=null;
 try{if(typeof BroadcastChannel==='function')channel=new BroadcastChannel('quezhang-updates')}catch{}
@@ -35,7 +58,7 @@ function statBar(rows,range){
 }
 function table(){
  const date=new Intl.DateTimeFormat('zh-TW',{timeZone:'Asia/Taipei',year:'numeric',month:'long',day:'numeric',weekday:'long'}).format(new Date());
- main.innerHTML=`<section class="hero"><div class="hero-inner wrap"><div class="hero-copy"><div class="eyebrow"><b></b> TAIWAN MAHJONG</div><h1>牌桌手帳<span class="seal" aria-label="十六張">十六<br>張</span></h1><p>算台、記帳，收好每一局的輸贏。</p><div class="hero-date">${icon('calendar',16)}${date}</div></div><div class="hero-art"><img src="hero.webp" alt="版畫風的紅中、青發、三筒和一枚紅骰子"></div></div></section><div class="wrap body-wrap">${statBar(records.filter(r=>r.date===today()),'今日')}<div class="workspace"><section class="panel calc"><div class="panel-head">${heading('台數積木','layers')}${action('rules','桌規設定','sliders','outline sm')}</div><p class="subcopy">點選本局成立的台型，立即試算台數與金額。</p><div class="field-name">本局結果</div><div class="segments mode-select">${modeButtons()}</div><div class="category-tabs" role="group" aria-label="台型分類">${groups.map((n,i)=>`<button data-group="${i}" class="${group===i?'on':''}" aria-pressed="${group===i}">${n}</button>`).join('')}</div><div id="blocks"></div><div id="pick-detail"></div><details class="dealer"><summary>${icon('sliders',16)} 莊家與連莊設定</summary><div class="two-fields"><label class="field"><span>莊家關係</span><select id="dealerRole"></select></label>${field('連莊次數','streak',streak,'min="0" max="99" step="1" inputmode="numeric"')}</div></details></section><aside class="panel summary"><div class="panel-head">${heading('本局結算','receipt')}</div><div id="amount"></div><div class="two-fields rates">${field('底金（元）','base',pref.base,'min="0" max="1000000" step="1" inputmode="numeric"')}${field('每台（元）','unit',pref.unit,'min="0" max="1000000" step="1" inputmode="numeric"')}</div><div id="settle-detail"></div><div class="save-actions">${action('record','記錄本局','plus','primary wide')}${action('quick','快速輸入金額','edit','text-btn')}</div></aside></div><section class="recent"><div class="row-title"><h2>最近牌局</h2><a href="#history">全部紀錄 ${icon('right',14)}</a></div>${recordList(records.slice(0,3))}</section></div>`;
+ main.innerHTML=`<section class="hero"><div class="hero-inner wrap"><div class="hero-copy"><div class="eyebrow"><b></b> TAIWAN MAHJONG</div><h1>牌桌手帳<span class="seal" aria-label="十六張">十六<br>張</span></h1><p>算台、記帳，收好每一局的輸贏。</p><div class="hero-date">${icon('calendar',16)}${date}</div></div><div class="hero-art"><img src="hero.webp" alt="版畫風的紅中、青發、三筒和一枚紅骰子"></div></div></section><div class="wrap body-wrap">${statBar(records.filter(r=>r.date===today()),'今日')}<a class="setup-shortcut" href="#opening"><span class="heading-icon">${icon('dice',22)}</span><span><b>開局抓位與擲骰</b><small>${validDice(opening.dice)?esc(openingText(opening)):'抽風入座、決定莊家，查看從哪一墩開始拿牌。'}</small></span>${icon('right',17)}</a><div class="workspace"><section class="panel calc"><div class="panel-head">${heading('台數積木','layers')}${action('rules','桌規設定','sliders','outline sm')}</div><p class="subcopy">點選本局成立的台型，立即試算台數與金額。</p><div class="field-name">本局結果</div><div class="segments mode-select">${modeButtons()}</div><div class="category-tabs" role="group" aria-label="台型分類">${groups.map((n,i)=>`<button data-group="${i}" class="${group===i?'on':''}" aria-pressed="${group===i}">${n}</button>`).join('')}</div><div id="blocks"></div><div id="pick-detail"></div><details class="dealer"><summary>${icon('sliders',16)} 莊家與連莊設定</summary><div class="two-fields"><label class="field"><span>莊家關係</span><select id="dealerRole"></select></label>${field('連莊次數','streak',streak,'min="0" max="99" step="1" inputmode="numeric"')}</div></details></section><aside class="panel summary"><div class="panel-head">${heading('本局結算','receipt')}</div><div id="amount"></div><div class="two-fields rates">${field('底金（元）','base',pref.base,'min="0" max="1000000" step="1" inputmode="numeric"')}${field('每台（元）','unit',pref.unit,'min="0" max="1000000" step="1" inputmode="numeric"')}</div><div id="settle-detail"></div><div class="save-actions">${action('record','記錄本局','plus','primary wide')}${action('quick','快速輸入金額','edit','text-btn')}</div></aside></div><section class="recent"><div class="row-title"><h2>最近牌局</h2><a href="#history">全部紀錄 ${icon('right',14)}</a></div>${recordList(records.slice(0,3))}</section></div>`;
  syncCalc();
 }
 function roleOptions(){
@@ -43,7 +66,7 @@ function roleOptions(){
  if(!opts.some(x=>x[0]===role))role=opts[0][0];
  $('#dealerRole').innerHTML=opts.map(([v,n])=>`<option value="${v}" ${v===role?'selected':''}>${n}</option>`).join('');
 }
-const getResult=()=>{const s=score(picks,mode,pref);return {...s,...settle(s.tai,mode,role,streak,pref)}};
+const getResult=()=>roundResult(picks,mode,role,streak,pref,opening.dice);
 function syncCalc(){
  if(page!=='table')return;roleOptions();
  const res=getResult(), zero=['draw','neutral'].includes(mode);
@@ -51,6 +74,7 @@ function syncCalc(){
  $('#blocks').innerHTML=zero?`<div class="note-box">${icon('info',17)}${mode==='draw'?'流局':'未參與收付'}以 0 元記入局數，可附照片與備註。</div>`:`<div class="block-grid">${blocksIn.map(b=>{
  const hit=Boolean(picks[b.id]),skipped=res.skipped.includes(b.id),disabled=b.id==='eight'&&!pref.eightFlower||b.id==='seven'&&!pref.sevenFlower||b.id==='river'&&!pref.lastDiscard||['riichi','early','first'].includes(b.id)&&!pref.declared;
  return `<button class="block ${hit?'picked':''} ${skipped?'covered':''}" data-pick="${b.id}" aria-pressed="${hit}" title="${esc(b.desc)}" ${disabled?'disabled':''}>${motif(b.mark)}<span class="block-text"><strong>${b.name}</strong><small>${disabled?'桌規未啟用':skipped?'不另計':valueOf(b.id,pref)+' 台'+(b.id==='flower'?' / 張':'')}</small></span>${hit?`<span class="tick">${b.id==='flower'?'×'+picks.flower:icon('check',11)}</span>`:''}</button>`}).join('')}</div>`;
+ if(group===3&&!zero)$('#blocks').insertAdjacentHTML('beforeend',`<div class="dice-effects"><b>骰子特別玩法</b><p>${effectsView(opening,pref)}</p><div class="dice-links"><a href="#opening">輸入開門骰</a>${action('dice-rules','設定骰規','sliders','text-btn')}</div></div>`);
  $('#pick-detail').innerHTML=(Object.keys(picks).length&&!zero?`<div class="pick-info"><span>已選 ${Object.keys(picks).length} 種台型</span>${action('reset-picks','清除選取','reset','text-btn')}</div>`:'')+
  res.notes.map(n=>`<div class="rule-note">${icon('info',15)}<span><b>${n.name}</b> · ${n.why}</span></div>`).join('');
  const commonExtra=res.rows.length===1?res.rows[0].extra:0;
@@ -66,7 +90,7 @@ function history(){
  main.innerHTML=`<div class="wrap inner-page"><div class="page-heading"><div><div class="eyebrow"><b></b> ROUND HISTORY</div><h1>牌局紀錄</h1><p>依日期翻閱牌面照片、台數與收付明細。</p></div>${action('quick','快速記帳','plus','primary')}</div>${statBar(selected,historyDate||filter!=='all'?'篩選':'累計')}<section class="panel history-panel"><div class="row-title">${heading('收支明細','book')}<span class="muted">${selected.length} 筆</span></div><div class="filter-bar"><div class="chips">${[['all','全部'],['win','贏錢'],['loss','輸錢'],['even','零收付']].map(([k,l])=>`<button class="${filter===k?'active':''}" data-filter="${k}">${l}</button>`).join('')}</div><label>日期 <input type="date" id="historyDate" value="${esc(historyDate)}"></label>${historyDate?action('all-dates','全部日期','','text-btn'):''}</div>${selected.length||!records.length?recordList(selected):'<div class="empty">這個條件下沒有紀錄，請調整日期或收付篩選。</div>'}</section></div>`;
 }
 function render(){
- const hash=location.hash.slice(1);page=navigation.some(n=>n[0]===hash)?hash:'table';nav();if(page==='table')table();else if(page==='history')history();else renderHand();
+ const hash=location.hash.slice(1);page=navigation.some(n=>n[0]===hash)?hash:'table';nav();if(page==='table')table();else if(page==='history')history();else if(page==='opening')paintOpening();else renderHand();
  if(isTemporary())main.insertAdjacentHTML('afterbegin','<div class="errorbar">目前使用暫存模式，關閉前請到「存檔管理」匯出文字檔以保留紀錄。</div>');
  if(storageBroken)main.insertAdjacentHTML('afterbegin','<div class="errorbar">此瀏覽器無法開啟本機資料庫，請允許網站儲存資料後重新整理。</div>');
 }
@@ -83,7 +107,7 @@ dlg.addEventListener('cancel',e=>{if(busy)e.preventDefault()});
 dlg.addEventListener('close',()=>{photoToken++;photoLoading=false;attachment='';modalType=''});
 const ruleToggles=[['eightFlower','八仙過海','集齊八花，以 8 台自摸結算，莊家台依本桌設定。'],['sevenFlower','七搶一','七花搶一花，按一人付一底八台。莊家台依本桌設定。'],['combinePong','字一色、五暗刻可另計碰碰胡','開啟後，另選碰碰胡積木可加 4 台。'],['combineWait','全求人可另計獨聽','開啟後，另選獨聽積木可加 1 台。'],['closedBonus','門清一摸三','門清自摸合計 3 台。關閉時門清與自摸各 1 台。'],['flatSelf','平胡可自摸','允許符合平胡牌型的自摸另計平胡。'],['dealer','莊家台','只有與莊家有關的付款加計莊家及連莊台。'],['pull','連莊加拉莊','每連一次加 2 台。關閉時每次加 1 台。'],['lastDiscard','河底撈魚','胡最後一張捨牌可加 1 台。'],['declared','報聽、地聽與天聽','開啟宣告聽牌台，三種以最高一項計算。']];
 function showRules(){
- show('桌規設定',`<form id="rulesForm"><p class="modal-intro">依開桌約定選擇算法，設定會套用到之後記錄的牌局。</p><label class="field"><span>台數基準</span><select id="profile"><option value="common">常用台數（逗陣打麻將）</option><option value="north">台北台數（土撥鼠）</option></select></label><p class="tiny-help">四暗刻／小四喜／大四喜／字一色：常用為 5／8／16／16 台，台北為 4／4／8／8 台。</p><div class="toggle-list">${ruleToggles.map(([id,n,d])=>`<label class="toggle"><span><b>${n}</b><small>${d}</small></span><input type="checkbox" name="${id}" ${pref[id]?'checked':''}><i></i></label>`).join('')}</div><details class="ref"><summary>台型說明與規則來源</summary><p>選取本局成立的台型。重疊台型依上述開關計算。正花每張 1 台，點選可在 0、1、2 張間切換。</p><ul>${blocks.map(b=>`<li><b>${b.name}</b>　${b.desc}</li>`).join('')}</ul><a href="https://letsmj.com/tai" target="_blank" rel="noopener">逗陣打麻將｜十六張算台教學</a><a href="https://www.gogogame.com.tw/htm/rule_3000.html" target="_blank" rel="noopener">土撥鼠｜十六張麻將台北台</a><a href="https://www.itaiwanmj.app/itwmj16/?story=482" target="_blank" rel="noopener">愛台灣打麻將｜花胡規則</a></details><button class="primary wide">${icon('check',17)}套用桌規</button></form>`,'rules','sliders');$('#profile').value=pref.profile;
+ show('桌規設定',`<form id="rulesForm"><p class="modal-intro">依開桌約定選擇算法，設定會套用到之後記錄的牌局。</p><label class="field"><span>台數基準</span><select id="profile"><option value="common">常用台數（逗陣打麻將）</option><option value="north">台北台數（土撥鼠）</option></select></label><p class="tiny-help">四暗刻／小四喜／大四喜／字一色：常用為 5／8／16／16 台，台北為 4／4／8／8 台。</p>${diceRuleFields(pref)}<div class="toggle-list">${ruleToggles.map(([id,n,d])=>`<label class="toggle"><span><b>${n}</b><small>${d}</small></span><input type="checkbox" name="${id}" ${pref[id]?'checked':''}><i></i></label>`).join('')}</div><details class="ref"><summary>台型說明與規則來源</summary><p>選取本局成立的台型。重疊台型依上述開關計算。正花每張 1 台，點選可在 0、1、2 張間切換。</p><ul>${blocks.map(b=>`<li><b>${b.name}</b>　${b.desc}</li>`).join('')}</ul><a href="https://letsmj.com/tai" target="_blank" rel="noopener">逗陣打麻將｜十六張算台教學</a><a href="https://www.gogogame.com.tw/htm/rule_3000.html" target="_blank" rel="noopener">土撥鼠｜十六張麻將台北台</a><a href="https://www.itaiwanmj.app/itwmj16/?story=482" target="_blank" rel="noopener">愛台灣打麻將｜花胡規則</a></details><button class="primary wide">${icon('check',17)}套用桌規</button></form>`,'rules','sliders');$('#profile').value=pref.profile;
 }
 function recordForm(quick=false){
  if(!quick&&!validRates())return;
@@ -98,15 +122,16 @@ function validRates(){
 async function saveRecord(){
  if(busy||photoLoading)return;const quick=modalType==='quick',res=getResult(),points=$('#points').value;
  const row={id:typeof crypto.randomUUID==='function'?crypto.randomUUID():Array.from(crypto.getRandomValues(new Uint32Array(4)),n=>n.toString(16).padStart(8,'0')).join('-'),created:Date.now(),date:$('#recordDate').value,time:$('#recordTime').value,note:$('#note').value.trim(),points:points===''?null:Number(points),photo:attachment,mode:quick?'manual':mode,amount:quick?Number($('#manualAmount').value)*Number($('#direction').value):res.amount,tai:quick?Number($('#manualTai').value):res.tai+(res.rows.length===1?res.rows[0].extra:0),base:quick?Number($('#manualBase').value):pref.base,unit:quick?Number($('#manualUnit').value):pref.unit,lines:quick?[]:res.lines,notes:quick?[]:res.notes,rows:quick?[]:res.rows,rules:{...pref},selections:quick?{}:{...picks},role:quick?'':role,streak:quick?0:streak};
+ if(!quick && (opening.drawn || opening.dice.some(Boolean) || opening.names.some(Boolean) || opening.dealer!==0))row.opening=JSON.parse(JSON.stringify(opening));
  busy=true;$('#saveRecord').disabled=true;
- try{await mergeRecords([row]);if(!quick){picks={};mode='win';group=0;role='none'}await refresh();channel?.postMessage('update');dlg.close();toast(isTemporary()?'已暫存這一局，請匯出文字檔備份':'已儲存這一局')}catch{toast('沒有存入紀錄。請確認瀏覽器儲存空間後重試。');$('#saveRecord').disabled=false}finally{busy=false}
+ try{await mergeRecords([row]);if(!quick){picks={};mode='win';group=0;role='none';resetOpeningDice()}await refresh();channel?.postMessage('update');dlg.close();toast(isTemporary()?'已暫存這一局，請匯出文字檔備份':'已儲存這一局')}catch{toast('沒有存入紀錄。請確認瀏覽器儲存空間後重試。');$('#saveRecord').disabled=false}finally{busy=false}
 }
 function showFiles(){
  show('存檔管理',`<p class="modal-intro">本機目前有 <b>${records.length}</b> 筆紀錄。文字備份包含勝負、台數、底台、點數、備註及照片。</p><div class="file-options"><div>${icon('download',22)}<span><b>匯出文字檔</b><small>下載全部牌局，可在其他裝置繼續使用。</small></span>${action('export','匯出','','outline sm')}</div><div>${icon('upload',22)}<span><b>讀取舊檔</b><small>將舊紀錄加入本機，相同牌局只保留一筆。</small></span><label class="outline sm">讀檔<input type="file" id="importFile" accept=".txt,text/plain" class="file-input"></label></div><div>${icon('folder',22)}<span><b>續存到舊紀錄</b><small>選擇舊檔，合併本機紀錄後下載完整新版。</small></span><label class="outline sm">合併<input type="file" id="appendFile" accept=".txt,text/plain" class="file-input"></label></div></div><p class="tiny-help">紀錄保存在目前瀏覽器。更換裝置或清除瀏覽資料前，請先匯出 TXT。</p><div id="importStatus" role="status"></div>`,'files','folder');
 }
 function detail(id){
  const r=records.find(x=>x.id===id);if(!r)return;detailId=id;
- show('牌局明細',`<div class="recap"><b>${modeName(r)}</b><strong>NT$ ${signed(r.amount)}</strong></div><dl class="details-grid">${[['時間',r.date+' '+r.time],['胡牌台數',r.tai+' 台'+(r.rows.length>1?'起':'')],['底金 / 每台','NT$ '+cash(r.base)+' / '+cash(r.unit)],['另記點數',r.points===null?'未填寫':signed(r.points)]].map(([k,v])=>`<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>${r.lines.length?`<div class="detail-section"><b>計台明細</b><p>${r.lines.map(x=>esc(x.name)+' '+x.tai+' 台').join('、')}</p></div>`:''}${r.notes.map(x=>`<div class="rule-note">${icon('info',15)}${esc(x.name)} · ${esc(x.why)}</div>`).join('')}${r.rows.length?`<div class="detail-section"><b>付款明細</b>${r.rows.map(x=>`<p>${esc(x.label)} · ${x.tai} 台 · NT$ ${cash(x.each)} × ${x.n}</p>`).join('')}</div>`:''}${r.note?`<div class="detail-section"><b>備註</b><p>${esc(r.note)}</p></div>`:''}${r.photo?`<img class="round-photo" src="${r.photo}" alt="這一局的牌面照片">`:''}<div class="modal-footer">${action('ask-delete','刪除紀錄','trash','text-btn danger')}${action('close','完成','','outline')}</div>`,'detail','receipt');
+ show('牌局明細',`<div class="recap"><b>${modeName(r)}</b><strong>NT$ ${signed(r.amount)}</strong></div><dl class="details-grid">${[['時間',r.date+' '+r.time],['胡牌台數',r.tai+' 台'+(r.rows.length>1?'起':'')],['底金 / 每台','NT$ '+cash(r.base)+' / '+cash(r.unit)],['另記點數',r.points===null?'未填寫':signed(r.points)]].map(([k,v])=>`<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>${validOpening(r.opening,true)?`<div class="detail-section"><b>本局抓位與開門</b><p>${winds.map((w,i)=>w+'席 '+esc(playerAt(r.opening,i))).join('、')}</p><p>莊家：${esc(playerAt(r.opening,r.opening.dealer))}</p><p>${esc(openingText(r.opening))}</p></div>`:''}${r.lines.length?`<div class="detail-section"><b>計台明細</b><p>${r.lines.map(x=>esc(x.name)+' '+x.tai+' 台').join('、')}</p></div>`:''}${r.notes.map(x=>`<div class="rule-note">${icon('info',15)}${esc(x.name)} · ${esc(x.why)}</div>`).join('')}${r.rows.length?`<div class="detail-section"><b>付款明細</b>${r.rows.map(x=>`<p>${esc(x.label)} · ${x.tai} 台 · NT$ ${cash(x.each)} × ${x.n}</p>`).join('')}</div>`:''}${r.note?`<div class="detail-section"><b>備註</b><p>${esc(r.note)}</p></div>`:''}${r.photo?`<img class="round-photo" src="${r.photo}" alt="這一局的牌面照片">`:''}<div class="modal-footer">${action('ask-delete','刪除紀錄','trash','text-btn danger')}${action('close','完成','','outline')}</div>`,'detail','receipt');
 }
 
 
@@ -164,6 +189,15 @@ document.addEventListener('click',async e=>{
  if(d.drop!==undefined){play(+d.drop);return}
  switch(d.action){
  case 'rules':showRules();break;
+ case 'dice-rules':showDiceRules();break;
+ case 'roll-seats':
+  opening.seatDice=rollDice();keepOpening();$('#seat-order').innerHTML=drawOrder(opening);break;
+ case 'draw-seats':
+  opening.seats=shuffledSeats();opening.drawn=true;opening.dealer=0;delete opening.dealerDice;delete opening.seatDice;
+  resetOpeningDice();paintOpening();toast('已抓位，四人各得一席');break;
+ case 'roll-dealer':rollDealer();break;
+ case 'roll-opening':opening.dice=rollDice();keepOpening();paintOpening();break;
+ case 'clear-dice':resetOpeningDice();paintOpening();break;
  case 'reset-picks':picks={};syncCalc();break;
  case 'record':recordForm();break;
  case 'quick':recordForm(true);break;
@@ -184,12 +218,32 @@ document.addEventListener('click',async e=>{
  }
 });
 document.addEventListener('input',e=>{
- const el=e.target;if(['base','unit','streak'].includes(el.id)&&el.value!==''&&el.validity.valid){
+ const el=e.target;
+ if(el.dataset.player!==undefined){
+  opening.names[Number(el.dataset.player)]=el.value;keepOpening();
+  $('#seat-map').innerHTML=diagram(opening);
+  $('#seat-order').innerHTML=drawOrder(opening);
+  document.querySelectorAll('[data-set-seat]').forEach(sel=>{const id=Number(el.dataset.player);sel.options[id].textContent=el.value.trim()||'玩家'+(id+1)});
+  Array.from($('#openingDealer').options).forEach((op,i)=>op.textContent=winds[i]+'席 · '+playerAt(opening,i));
+  const region=$('#wall-result');if(region)region.innerHTML=drawView(opening);
+  if(validDice(opening.dealerDice))$('#dealer-report').textContent='定莊骰 '+opening.dealerDice.join('、')+'，'+playerAt(opening,opening.dealer)+' 坐莊。';
+  return;
+ }
+ if(['base','unit','streak'].includes(el.id)&&el.value!==''&&el.validity.valid){
   if(el.id==='streak')streak=+el.value;else {pref[el.id]=+el.value;persist()}syncCalc();
  }
 });
 document.addEventListener('change',async e=>{
  const el=e.target;
+ if(el.dataset.setSeat!==undefined){
+  const dest=Number(el.dataset.setSeat), previous=opening.seats.indexOf(Number(el.value));
+  [opening.seats[dest],opening.seats[previous]]=[opening.seats[previous],opening.seats[dest]];
+  opening.drawn=true;opening.dealer=0;delete opening.dealerDice;resetOpeningDice();paintOpening();
+  $('#physical-seats').open=true;return;
+ }
+ if(el.dataset.die!==undefined){opening.dice[Number(el.dataset.die)]=Number(el.value);keepOpening();paintOpening();return}
+ if(el.id==='openingDealer'){opening.dealer=Number(el.value);delete opening.dealerDice;resetOpeningDice();paintOpening();return}
+ if(el.name==='tripleMode'){$('#fixed-triple').hidden=el.value!=='fixed';$('#fixed-triple input').disabled=el.value!=='fixed';return}
  if(el.id==='dealerRole'){role=el.value;syncCalc();return}
  if(el.id==='historyDate'){historyDate=el.value;history();return}
  if(el.id==='direction'){const zero=el.value==='0';$('#manualAmount').disabled=zero;if(zero)$('#manualAmount').value=0;return}
@@ -202,7 +256,11 @@ document.addEventListener('change',async e=>{
  }
 });
 document.addEventListener('submit',async e=>{
- e.preventDefault();if(e.target.id==='rulesForm'){pref.profile=$('#profile').value;for(const [id] of ruleToggles)pref[id]=e.target.elements[id].checked;persist();dlg.close();render();toast('已套用桌規');return}
+ e.preventDefault();if(e.target.id==='rulesForm'){pref.profile=$('#profile').value;
+  for(const key of ['diceRun','diceRed','diceTriple','diceStack'])pref[key]=e.target.elements[key].checked;
+  for(const key of ['runTai','redTai','tripleTai'])if(!e.target.elements[key].disabled)pref[key]=Number(e.target.elements[key].value);
+  pref.tripleMode=e.target.elements.tripleMode.value;
+  for(const [id] of ruleToggles)pref[id]=e.target.elements[id].checked;persist();dlg.close();render();toast('已套用桌規');return}
  if(e.target.id==='recordForm')await saveRecord();
 });
 document.querySelectorAll('[data-icon]').forEach(el=>el.outerHTML=icon(el.dataset.icon,18));

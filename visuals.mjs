@@ -1,5 +1,6 @@
 import {tileNames} from './engine.mjs';
 const paths={
+ dice:'<rect x="3" y="3" width="18" height="18" rx="4"/><g fill="currentColor" stroke="none"><circle cx="8" cy="8" r="1.6"/><circle cx="16" cy="8" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="8" cy="16" r="1.6"/><circle cx="16" cy="16" r="1.6"/></g>',
  dashboard:'<rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/>',
  book:'<path d="M5 4h14a1 1 0 0 1 1 1v16H6a3 3 0 0 1-3-3V7a3 3 0 0 1 2-3Z"/><path d="M3 18c0-2 2-3 4-3h13M8 4v11m3-7h5"/>',
  tiles:'<rect x="9" y="3" width="11" height="16" rx="2" transform="rotate(8 14 11)"/><path d="m6 7-2 1-1 11 2 2 9 1 2-2m-2-13v7m-2-5h4v3h-4z"/>',

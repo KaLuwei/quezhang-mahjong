@@ -1,3 +1,4 @@
+import {validOpening,validDice} from './opening.mjs';
 let memoryOnly=false;
 const transient=new Map();
 export const isTemporary=()=>memoryOnly;
@@ -28,7 +29,7 @@ export async function removeRecord(id){
 export const marker='--- 雀帳資料 v1 ---';
 export function pack(rows){
  const titles={win:'胡牌',self:'自摸',loss:'放槍',pay:'被自摸',draw:'流局',neutral:'未收付',manual:'快速記帳'};
- return '雀帳｜台灣麻將牌局手帳\n'+rows.map(r=>r.date+' '+r.time+'　'+titles[r.mode]+'　'+r.tai+' 台　底 '+r.base+'／台 '+r.unit+'　NT$ '+r.amount+'　點數 '+(r.points??'未記')).join('\n')+'\n\n'+marker+'\n'+JSON.stringify({format:'quezhang',version:1,rounds:rows},null,2);
+ return '雀帳｜台灣麻將牌局手帳\n'+rows.map(r=>r.date+' '+r.time+'　'+titles[r.mode]+'　'+r.tai+' 台　底 '+r.base+'／台 '+r.unit+'　NT$ '+r.amount+'　點數 '+(r.points??'未記')+(validDice(r.opening?.dice)?'　開門骰 '+r.opening.dice.join('、'):'')).join('\n')+'\n\n'+marker+'\n'+JSON.stringify({format:'quezhang',version:1,rounds:rows},null,2);
 }
 const finite=(n,max=1e13)=>typeof n==='number'&&Number.isFinite(n)&&Math.abs(n)<=max;
 const short=(s,n)=>typeof s==='string'&&s.length<=n;
@@ -37,6 +38,7 @@ export function unpack(text){
  let data;try{data=JSON.parse(text.slice(i+marker.length+2))}catch{throw Error('檔案資料不完整，請重新選擇原始備份。')}
  if(data?.format!=='quezhang'||data.version!==1||!Array.isArray(data.rounds))throw Error('這份備份的版本或格式無法辨識。');
  for(const r of data.rounds){
+  if(r?.opening!=null && !validOpening(r.opening,true))throw Error('備份中的抓位或骰點無效，這次未匯入紀錄。');
   if(!r||!short(r.id,100)||!r.id||!/^\d{4}-\d{2}-\d{2}$/.test(r.date)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(r.time)||!['win','self','loss','pay','neutral','draw','manual'].includes(r.mode)||![r.amount,r.tai,r.base,r.unit,r.created].every(x=>finite(x,1e15))||[r.tai,r.base,r.unit].some(x=>x<0)||!(r.points===null||finite(r.points))||!short(r.note,1000)||!(r.photo===''||short(r.photo,6000000)&&/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(r.photo))||!Array.isArray(r.lines)||!r.lines.every(x=>x&&short(x.name,100)&&finite(x.tai))||!Array.isArray(r.notes)||!r.notes.every(x=>x&&short(x.name,100)&&short(x.why,300))||!Array.isArray(r.rows)||!r.rows.every(x=>x&&short(x.label,100)&&[x.n,x.tai,x.each,x.extra].every(y=>finite(y))))throw Error('備份內有無效的牌局資料，這次未匯入任何紀錄。');
  }
  return data.rounds;
